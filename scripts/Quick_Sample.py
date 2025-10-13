@@ -18,10 +18,12 @@ from Utils.Utils import Utils
 
 def main():
     # Configuration
-    model_path = "./outputs/ChromatinVAE/trained_vae_model.pt"
+    model_path = "./outputs/trained_vae_model_XXL.pt"
     dataset_path = "./Data/chromosome21_aligned.pdb"
-    output_dir = "./outputs/Generated_Samples"
+    output_dir = "./outputs/Generated_Samples_XXL"
     num_samples = 5000
+    HIDDEN_DIM = 16_384
+    LATENT_DIM = 32
     
     # Create output directory
     Path(output_dir).mkdir(parents=True, exist_ok=True)
@@ -40,7 +42,7 @@ def main():
     # Load model
     print("Loading trained model...")
     utils = Utils()
-    model = LGL_VAE(hidden_dim=512, latent_dim=32, input_dim=input_dim)
+    model = LGL_VAE(hidden_dim=HIDDEN_DIM, latent_dim=LATENT_DIM, input_dim=input_dim)
     model = model.to(utils.device)
     
     checkpoint = torch.load(model_path, map_location=utils.device)
@@ -51,7 +53,7 @@ def main():
     print(f"Generating {num_samples} samples...")
     with torch.no_grad():
         # Sample from latent space
-        z = torch.randn(num_samples, 32, device=utils.device)
+        z = torch.randn(num_samples, LATENT_DIM, device=utils.device)
         samples = model.decoder(z)
     
     # Convert to PDB format - single file with multiple models

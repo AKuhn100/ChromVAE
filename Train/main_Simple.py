@@ -22,10 +22,10 @@ torch.backends.cudnn.benchmark = False
 # Path to PDB file
 PDB_PATH = "./Data/chromosome21_aligned.pdb"
 # Path to save trained model
-MODEL_SAVE_PATH = "./outputs/ChromatinVAE/trained_vae_model_Large.pt"
+MODEL_SAVE_PATH = "./outputs/trained_vae_model_XXL.pt"
 
 # Model hyperparameters
-HIDDEN_DIM = 1024
+HIDDEN_DIM = 16_384
 LATENT_DIM = 32
 
 # Training hyperparameters

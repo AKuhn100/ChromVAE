@@ -164,9 +164,9 @@ def main():
                        help="Number of samples to generate")
     parser.add_argument("--sample_type", type=str, default="random", choices=["random", "interpolated"],
                        help="Type of sampling: random or interpolated")
-    parser.add_argument("--hidden_dim", type=int, default=512,
+    parser.add_argument("--hidden_dim", type=int, default=4096,
                        help="Hidden dimension of the model")
-    parser.add_argument("--latent_dim", type=int, default=32,
+    parser.add_argument("--latent_dim", type=int, default=2,
                        help="Latent dimension of the model")
     
     args = parser.parse_args()

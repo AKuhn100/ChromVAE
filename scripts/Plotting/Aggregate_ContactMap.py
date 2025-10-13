@@ -1,22 +1,15 @@
 #!/usr/bin/env python3
 
 """
-Aggregate per-model contact maps from a multi-model PDB into a single heatmap.
+Simplified aggregate contact map generator.
 
-This script streams a multi-model PDB (MODEL/ENDMDL), computes a contact map per model,
-and aggregates them using mean, sum, or median. The result is saved as an image and,
-optionally, a matrix file (.npy or .npz).
+This script generates two specific outputs from a multi-model PDB:
+1. Inverse distance map - 1/average pairwise distances across all models
+2. Inverse standard deviation map - 1/stddev of pairwise distance distributions
 
-Example:
-  python Aggregate_ContactMap.py \
-    --pdb /Users/amk19/Desktop/ChromatinVAE/Data/chromosome21_aligned.pdb \
-    --out_img /Users/amk19/Desktop/ChromatinVAE/Chrom_21_ContactMap_mean.png \
-    --aggregate mean \
-    --mode binary --cutoff 300
-
+Static configuration - modify paths directly in the script.
 """
 
-import argparse
 import os
 import sys
 from typing import Generator, List, Optional, Tuple
@@ -30,27 +23,10 @@ except ImportError:
     cm = None  # type: ignore
     plt = None  # type: ignore
 
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Aggregate per-model contact maps into one heatmap")
-    parser.add_argument("--pdb", required=True, help="Path to input multi-model PDB file")
-    parser.add_argument("--out_img", required=True, help="Path to output heatmap image (e.g., .png)")
-    parser.add_argument("--out_matrix", default=None, help="Optional path to save matrix (.npy or .npz)")
-    parser.add_argument("--aggregate", choices=["mean", "sum", "median", "invstd"], default="mean",
-                        help="Aggregation across models; 'invstd' computes 1/std of pairwise distances")
-    parser.add_argument("--mode", choices=["binary", "inverse", "gaussian"], default="binary",
-                        help="Contact map mode")
-    parser.add_argument("--cutoff", type=float, default=300.0, help="Cutoff for binary mode")
-    parser.add_argument("--sigma", type=float, default=200.0, help="Sigma for gaussian mode")
-    parser.add_argument("--float32", action="store_true", help="Use float32 for computations")
-    parser.add_argument("--max_models", type=int, default=None, help="Optional cap on number of models")
-    parser.add_argument("--colormap", type=str, default="viridis", help="Matplotlib colormap for image")
-    parser.add_argument("--dpi", type=int, default=200, help="Image DPI")
-    parser.add_argument("--vmin", type=float, default=None, help="Fixed vmin for rendering")
-    parser.add_argument("--vmax", type=float, default=None, help="Fixed vmax for rendering")
-    parser.add_argument("--eps", type=float, default=1e-6, help="Small epsilon to avoid division by zero in invstd")
-    parser.add_argument("--quiet", action="store_true", help="Reduce console output")
-    return parser.parse_args()
+# Static configuration - modify these paths as needed
+PDB_PATH = "/scratch/amk19/ChromVAE/ChromVAE/outputs/Generated_Samples_XXL/generated_samples.pdb"
+INVERSE_DISTANCE_OUTPUT = "/scratch/amk19/ChromVAE/ChromVAE/outputs/Generated_Samples_XXL/inverse_distance_map.png"
+INVERSE_STDDEV_OUTPUT = "/scratch/amk19/ChromVAE/ChromVAE/outputs/Generated_Samples_XXL/inverse_stddev_map.png"
 
 
 def stream_models_from_pdb(pdb_path: str) -> Generator[Tuple[int, np.ndarray], None, None]:
@@ -89,12 +65,9 @@ def stream_models_from_pdb(pdb_path: str) -> Generator[Tuple[int, np.ndarray], N
         yield (model_idx, arr)
 
 
-def compute_contact_map(coords: np.ndarray,
-                        mode: str,
-                        cutoff: float,
-                        sigma: float,
-                        use_float32: bool) -> np.ndarray:
-    dtype = np.float32 if use_float32 else np.float64
+def compute_pairwise_distances(coords: np.ndarray) -> np.ndarray:
+    """Compute pairwise distances between all coordinates."""
+    dtype = np.float64
     xyz = coords.astype(dtype, copy=False)
     n = xyz.shape[0]
     if n == 0:
@@ -103,167 +76,99 @@ def compute_contact_map(coords: np.ndarray,
     dot = xyz @ xyz.T
     sq_norms = np.sum(xyz * xyz, axis=1, dtype=dtype)
     dist2 = np.maximum(sq_norms[:, None] + sq_norms[None, :] - 2.0 * dot, 0.0)
-
-    if mode == "binary":
-        contacts = (dist2 <= cutoff * cutoff).astype(dtype, copy=False)
-        np.fill_diagonal(contacts, 0.0)
-        return contacts
-
     dist = np.sqrt(dist2, dtype=dtype)
     np.fill_diagonal(dist, 0.0)
-
-    if mode == "inverse":
-        eps = np.finfo(dtype).eps
-        inv = 1.0 / (dist + eps)
-        inv[dist == 0.0] = 0.0
-        return inv
-    elif mode == "gaussian":
-        if sigma <= 0:
-            raise ValueError("Sigma must be positive for gaussian mode")
-        val = np.exp(- (dist / dtype(sigma)) ** 2)
-        np.fill_diagonal(val, 0.0)
-        return val
-    else:
-        raise ValueError(f"Unknown mode: {mode}")
+    return dist
 
 
-def aggregate_matrices(mats: List[np.ndarray], how: str) -> np.ndarray:
-    if not mats:
-        return np.zeros((0, 0), dtype=np.float64)
-    # Ensure consistent shapes
-    shapes = {m.shape for m in mats}
-    if len(shapes) != 1:
-        raise ValueError(f"Matrices have inconsistent shapes: {shapes}")
-    stack = np.stack(mats, axis=0)
-    if how == "mean":
-        return stack.mean(axis=0)
-    if how == "sum":
-        return stack.sum(axis=0)
-    if how == "median":
-        return np.median(stack, axis=0)
-    raise ValueError(f"Unknown aggregate: {how}")
-
-
-def save_image(matrix: np.ndarray, out_img: str, colormap: str, dpi: int,
-               vmin: Optional[float], vmax: Optional[float]) -> None:
+def save_heatmap(matrix: np.ndarray, out_img: str, title: str) -> None:
+    """Save a heatmap image with the given matrix and title."""
     if plt is None:
-        raise RuntimeError("matplotlib is required to save the heatmap image. Install via `pip install matplotlib`." )
-    plt.figure(figsize=(6, 6), dpi=dpi)
-    plt.imshow(matrix, cmap=colormap, interpolation="nearest", vmin=vmin, vmax=vmax)
+        raise RuntimeError("matplotlib is required to save the heatmap image. Install via `pip install matplotlib`.")
+    
+    plt.figure(figsize=(8, 8), dpi=200)
+    plt.imshow(matrix, cmap="magma", interpolation="nearest")
     plt.colorbar(fraction=0.046, pad=0.04)
+    plt.title(title)
+    plt.xlabel("Amino Acid Index")
+    plt.ylabel("Amino Acid Index")
     plt.tight_layout()
-    plt.savefig(out_img, dpi=dpi)
+    plt.savefig(out_img, dpi=200)
     plt.close()
 
 
-
-
 def main() -> None:
-    args = parse_args()
-
-    pdb_path = args.pdb
+    """Generate average distance map and inverse standard deviation map."""
+    pdb_path = PDB_PATH
     if not os.path.isfile(pdb_path):
         print(f"Error: PDB not found: {pdb_path}", file=sys.stderr)
         sys.exit(1)
 
-    os.makedirs(os.path.dirname(args.out_img) or ".", exist_ok=True)
-    if args.out_matrix is not None:
-        os.makedirs(os.path.dirname(args.out_matrix) or ".", exist_ok=True)
+    # Create output directories
+    os.makedirs(os.path.dirname(INVERSE_DISTANCE_OUTPUT) or ".", exist_ok=True)
+    os.makedirs(os.path.dirname(INVERSE_STDDEV_OUTPUT) or ".", exist_ok=True)
 
-    matrices: List[np.ndarray] = []
+    # Online variance calculation using Welford's algorithm
+    mean_dist: Optional[np.ndarray] = None
+    m2_dist: Optional[np.ndarray] = None
     model_count = 0
     expected_n: Optional[int] = None
 
-    if args.aggregate == "invstd":
-        # Online variance for distance matrices using Welford's algorithm
-        mean_dist: Optional[np.ndarray] = None
-        m2_dist: Optional[np.ndarray] = None
-        for model_idx, coords in stream_models_from_pdb(pdb_path):
-            if args.max_models is not None and model_count >= args.max_models:
-                break
+    print("Processing models and computing pairwise distances...")
+    
+    for model_idx, coords in stream_models_from_pdb(pdb_path):
+        if expected_n is None:
+            expected_n = coords.shape[0]
+            print(f"Detected {expected_n} particles per model (from model {model_idx}).")
+        elif coords.shape[0] != expected_n:
+            print(f"Warning: model {model_idx} has {coords.shape[0]} particles (expected {expected_n}).", file=sys.stderr)
 
-            if expected_n is None:
-                expected_n = coords.shape[0]
-                if not args.quiet:
-                    print(f"Detected {expected_n} particles per model (from model {model_idx}).")
-            elif coords.shape[0] != expected_n:
-                if not args.quiet:
-                    print(f"Warning: model {model_idx} has {coords.shape[0]} particles (expected {expected_n}).", file=sys.stderr)
+        # Compute pairwise distances for this model
+        dist = compute_pairwise_distances(coords)
 
-            # Compute pairwise distances for this model
-            dtype = np.float32 if args.float32 else np.float64
-            xyz = coords.astype(dtype, copy=False)
-            dot = xyz @ xyz.T
-            sq_norms = np.sum(xyz * xyz, axis=1, dtype=dtype)
-            dist2 = np.maximum(sq_norms[:, None] + sq_norms[None, :] - 2.0 * dot, 0.0)
-            dist = np.sqrt(dist2, dtype=dtype)
-            np.fill_diagonal(dist, 0.0)
-
-            if mean_dist is None:
-                mean_dist = dist.astype(np.float64, copy=True)
-                m2_dist = np.zeros_like(mean_dist, dtype=np.float64)
-                model_count = 1
-            else:
-                model_count += 1
-                delta = dist - mean_dist
-                mean_dist += delta / model_count
-                m2_dist += delta * (dist - mean_dist)
-
-            if not args.quiet and (model_count % 10 == 0):
-                print(f"Processed {model_count} models...")
-
-        if mean_dist is None or m2_dist is None:
-            print("No models were processed; nothing to aggregate.", file=sys.stderr)
-            sys.exit(2)
-
-        if model_count < 2:
-            std = np.zeros_like(mean_dist)
+        if mean_dist is None:
+            mean_dist = dist.astype(np.float64, copy=True)
+            m2_dist = np.zeros_like(mean_dist, dtype=np.float64)
+            model_count = 1
         else:
-            var = m2_dist / (model_count - 1)
-            var[var < 0.0] = 0.0
-            std = np.sqrt(var)
-        invstd = 1.0 / (std + float(args.eps))
-        np.fill_diagonal(invstd, 0.0)
-        agg = invstd
-    else:
-        for model_idx, coords in stream_models_from_pdb(pdb_path):
-            if args.max_models is not None and model_count >= args.max_models:
-                break
-
-            if expected_n is None:
-                expected_n = coords.shape[0]
-                if not args.quiet:
-                    print(f"Detected {expected_n} particles per model (from model {model_idx}).")
-            elif coords.shape[0] != expected_n:
-                if not args.quiet:
-                    print(f"Warning: model {model_idx} has {coords.shape[0]} particles (expected {expected_n}).", file=sys.stderr)
-
-            mat = compute_contact_map(coords, args.mode, args.cutoff, args.sigma, args.float32)
-            matrices.append(mat)
             model_count += 1
-            if not args.quiet and (model_count % 10 == 0):
-                print(f"Processed {model_count} models...")
+            delta = dist - mean_dist
+            mean_dist += delta / model_count
+            m2_dist += delta * (dist - mean_dist)
 
-        if not matrices:
-            print("No models were processed; nothing to aggregate.", file=sys.stderr)
-            sys.exit(2)
+        if model_count % 10 == 0:
+            print(f"Processed {model_count} models...")
 
-        agg = aggregate_matrices(matrices, args.aggregate)
+    if mean_dist is None or m2_dist is None:
+        print("No models were processed; nothing to aggregate.", file=sys.stderr)
+        sys.exit(2)
 
-    # Save image
-    save_image(agg, args.out_img, args.colormap, args.dpi, args.vmin, args.vmax)
+    print(f"Processed {model_count} models total.")
 
-    # Optionally save matrix
-    if args.out_matrix is not None:
-        if args.out_matrix.lower().endswith(".npz"):
-            np.savez_compressed(args.out_matrix, matrix=agg)
-        else:
-            np.save(args.out_matrix, agg)
+    # Calculate standard deviation
+    if model_count < 2:
+        std = np.zeros_like(mean_dist)
+    else:
+        var = m2_dist / (model_count - 1)
+        var[var < 0.0] = 0.0
+        std = np.sqrt(var)
 
-    if not args.quiet:
-        print(f"Saved aggregated heatmap to {args.out_img}")
-        if args.out_matrix is not None:
-            print(f"Saved matrix to {args.out_matrix}")
+    # Generate outputs
+    print("Generating inverse distance map...")
+    eps = 1e-6  # Small epsilon to avoid division by zero
+    inv_dist = 1.0 / (mean_dist + eps)
+    np.fill_diagonal(inv_dist, 0.0)  # Set diagonal to 0
+    save_heatmap(inv_dist, INVERSE_DISTANCE_OUTPUT, "Inverse Average Distance Map")
+    print(f"Saved inverse distance map to {INVERSE_DISTANCE_OUTPUT}")
+
+    print("Generating inverse standard deviation map...")
+    eps = 1e-6  # Small epsilon to avoid division by zero
+    inv_std = 1.0 / (std + eps)
+    np.fill_diagonal(inv_std, 0.0)  # Set diagonal to 0
+    save_heatmap(inv_std, INVERSE_STDDEV_OUTPUT, "Inverse Standard Deviation Map")
+    print(f"Saved inverse standard deviation map to {INVERSE_STDDEV_OUTPUT}")
+
+    print("Done!")
 
 
 if __name__ == "__main__":
