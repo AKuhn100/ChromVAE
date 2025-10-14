@@ -18,13 +18,13 @@ from Utils.Utils import Utils
 
 def main():
     # Configuration
-    model_path = "./outputs/trained_vae_model_XL.pt"
+    model_path = "./outputs/trained_vae_model.pt"
     dataset_path = "./Data/chromosome21_aligned.pdb"
-    output_dir = "./outputs/Generated_Samples_XL"
-    num_samples = 5000
-    HIDDEN_DIM = 4096
+    output_dir = "./outputs/Generated_Samples"
+    num_samples = 7500
+    HIDDEN_DIM = 1024
     LATENT_DIM = 2
-    LATENT_VARIANCE = 10.0  # Variance multiplier for latent space sampling (1.0 = standard normal)
+    LATENT_VARIANCE = 15.0  # Variance multiplier for latent space sampling (1.0 = standard normal)
     
     # Create output directory
     Path(output_dir).mkdir(parents=True, exist_ok=True)
