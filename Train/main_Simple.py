@@ -22,17 +22,17 @@ torch.backends.cudnn.benchmark = False
 # Path to PDB file
 PDB_PATH = "./Data/chromosome21_aligned.pdb"
 # Path to save trained model
-MODEL_SAVE_PATH = "./outputs/trained_vae_model_XXL.pt"
+MODEL_SAVE_PATH = "./outputs/trained_vae_model_XL.pt"
 
 # Model hyperparameters
-HIDDEN_DIM = 16_384
-LATENT_DIM = 32
+HIDDEN_DIM = 4096
+LATENT_DIM = 2
 
 # Training hyperparameters
-BATCH_SIZE = 32
+BATCH_SIZE = 16
 LEARNING_RATE = 5e-4  # Reduced learning rate for stability
-NUM_EPOCHS = 1000
-BETA = 1  # Reduced KL weight for stability
+NUM_EPOCHS = 100
+BETA = 0.01  # Reduced KL weight for stability
 L2_REGULARIZATION = 0.0001
 
 # Initialize Utils

@@ -18,12 +18,13 @@ from Utils.Utils import Utils
 
 def main():
     # Configuration
-    model_path = "./outputs/trained_vae_model_XXL.pt"
+    model_path = "./outputs/trained_vae_model_XL.pt"
     dataset_path = "./Data/chromosome21_aligned.pdb"
-    output_dir = "./outputs/Generated_Samples_XXL"
+    output_dir = "./outputs/Generated_Samples_XL"
     num_samples = 5000
-    HIDDEN_DIM = 16_384
-    LATENT_DIM = 32
+    HIDDEN_DIM = 4096
+    LATENT_DIM = 2
+    LATENT_VARIANCE = 10.0  # Variance multiplier for latent space sampling (1.0 = standard normal)
     
     # Create output directory
     Path(output_dir).mkdir(parents=True, exist_ok=True)
@@ -51,9 +52,10 @@ def main():
     
     # Generate samples
     print(f"Generating {num_samples} samples...")
+    print(f"Using latent variance multiplier: {LATENT_VARIANCE}")
     with torch.no_grad():
-        # Sample from latent space
-        z = torch.randn(num_samples, LATENT_DIM, device=utils.device)
+        # Sample from latent space with specified variance
+        z = torch.randn(num_samples, LATENT_DIM, device=utils.device) * np.sqrt(LATENT_VARIANCE)
         samples = model.decoder(z)
     
     # Convert to PDB format - single file with multiple models

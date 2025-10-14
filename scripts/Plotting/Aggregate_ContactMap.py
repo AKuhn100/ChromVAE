@@ -24,9 +24,9 @@ except ImportError:
     plt = None  # type: ignore
 
 # Static configuration - modify these paths as needed
-PDB_PATH = "/scratch/amk19/ChromVAE/ChromVAE/outputs/Generated_Samples_XXL/generated_samples.pdb"
-INVERSE_DISTANCE_OUTPUT = "/scratch/amk19/ChromVAE/ChromVAE/outputs/Generated_Samples_XXL/inverse_distance_map.png"
-INVERSE_STDDEV_OUTPUT = "/scratch/amk19/ChromVAE/ChromVAE/outputs/Generated_Samples_XXL/inverse_stddev_map.png"
+PDB_PATH = "/scratch/amk19/ChromVAE/ChromVAE/outputs/Generated_Samples/generated_samples.pdb"
+INVERSE_DISTANCE_OUTPUT = "/scratch/amk19/ChromVAE/ChromVAE/outputs/Generated_Samples/inverse_distance_map.png"
+INVERSE_STDDEV_OUTPUT = "/scratch/amk19/ChromVAE/ChromVAE/outputs/Generated_Samples/inverse_stddev_map.png"
 
 
 def stream_models_from_pdb(pdb_path: str) -> Generator[Tuple[int, np.ndarray], None, None]:
@@ -81,13 +81,13 @@ def compute_pairwise_distances(coords: np.ndarray) -> np.ndarray:
     return dist
 
 
-def save_heatmap(matrix: np.ndarray, out_img: str, title: str) -> None:
+def save_heatmap(matrix: np.ndarray, out_img: str, title: str, vmin: float = 0.0, vmax: float = 1.0) -> None:
     """Save a heatmap image with the given matrix and title."""
     if plt is None:
         raise RuntimeError("matplotlib is required to save the heatmap image. Install via `pip install matplotlib`.")
     
     plt.figure(figsize=(8, 8), dpi=200)
-    plt.imshow(matrix, cmap="magma", interpolation="nearest")
+    plt.imshow(matrix, cmap="magma", interpolation="nearest", vmin=vmin, vmax=vmax)
     plt.colorbar(fraction=0.046, pad=0.04)
     plt.title(title)
     plt.xlabel("Bead Index")
@@ -158,14 +158,22 @@ def main() -> None:
     eps = 1e-6  # Small epsilon to avoid division by zero
     inv_dist = 1.0 / (mean_dist + eps)
     np.fill_diagonal(inv_dist, 0.0)  # Set diagonal to 0
-    save_heatmap(inv_dist, INVERSE_DISTANCE_OUTPUT, "Inverse Average Distance Map")
+    
+    # Apply maximum threshold of 1
+    inv_dist = np.minimum(inv_dist, 1.0)
+    
+    save_heatmap(inv_dist, INVERSE_DISTANCE_OUTPUT, "Inverse Average Distance Map", vmin=0.0, vmax=1.0)
     print(f"Saved inverse distance map to {INVERSE_DISTANCE_OUTPUT}")
 
     print("Generating inverse standard deviation map...")
     eps = 1e-6  # Small epsilon to avoid division by zero
     inv_std = 1.0 / (std + eps)
     np.fill_diagonal(inv_std, 0.0)  # Set diagonal to 0
-    save_heatmap(inv_std, INVERSE_STDDEV_OUTPUT, "Inverse Standard Deviation Map")
+    
+    # Apply maximum threshold of 1
+    inv_std = np.minimum(inv_std, 1.0)
+    
+    save_heatmap(inv_std, INVERSE_STDDEV_OUTPUT, "Inverse Standard Deviation Map", vmin=0.0, vmax=1.0)
     print(f"Saved inverse standard deviation map to {INVERSE_STDDEV_OUTPUT}")
 
     print("Done!")
