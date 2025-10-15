@@ -26,18 +26,6 @@ class LGL_VAE(nn.Module):
             nn.Linear(in_features=hidden_dim, out_features=input_dim)
         )
         
-        # Initialize weights properly
-        self._init_weights()
-    
-    def _init_weights(self):
-        """Initialize weights to prevent vanishing/exploding gradients"""
-        for m in self.modules():
-            if isinstance(m, nn.Linear):
-                nn.init.xavier_uniform_(m.weight)
-                if m.bias is not None:
-                    nn.init.zeros_(m.bias)
-
-        
     def forward(self, input_vector):
         # input_vector: [batch, input_dim] continuous values
         x = input_vector.view(input_vector.shape[0], -1).float()
