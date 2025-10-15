@@ -24,7 +24,7 @@ def main():
     num_samples = 7500
     HIDDEN_DIM = 1024
     LATENT_DIM = 2
-    LATENT_VARIANCE = 15.0  # Variance multiplier for latent space sampling (1.0 = standard normal)
+    LATENT_VARIANCE = 1.0  # Variance multiplier for latent space sampling (1.0 = standard normal)
     
     # Create output directory
     Path(output_dir).mkdir(parents=True, exist_ok=True)
