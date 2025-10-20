@@ -26,13 +26,13 @@ MODEL_SAVE_PATH = "./outputs/trained_vae_model.pt"
 
 # Model hyperparameters
 HIDDEN_DIM = 4096
-LATENT_DIM = 2
+LATENT_DIM = 16
 
 # Training hyperparameters
 BATCH_SIZE = 64
 LEARNING_RATE = 1e-4  # Reduced learning rate for stability
-NUM_EPOCHS = 1000
-BETA = 0.1  # Reduced KL weight for stability
+NUM_EPOCHS = 100
+BETA = 0.01  # Reduced KL weight for stability
 L2_REGULARIZATION = 0.0001
 
 # Initialize Utils
@@ -40,11 +40,53 @@ utils = Utils()
 print(f"Using device: {utils.device}")
 
 
-def vae_loss(reconstructed, target, mu, logvar):
-    """VAE loss for continuous coordinate data."""
-    # Reconstruction loss (MSE for continuous coordinates)
+def compute_pairwise_distances(flattened_coords, num_atoms):
+    """
+    Compute pairwise distances from flattened coordinate vectors.
+    
+    Args:
+        flattened_coords: [batch_size, 3 * num_atoms] tensor of flattened coordinates
+        num_atoms: number of atoms per structure
+    
+    Returns:
+        pairwise_distances: [batch_size, num_atoms * (num_atoms - 1) // 2] tensor of pairwise distances
+    """
+    batch_size = flattened_coords.shape[0]
+    
+    # Reshape to [batch_size, num_atoms, 3]
+    coords = flattened_coords.view(batch_size, num_atoms, 3)
+    
+    # Compute pairwise distances using broadcasting
+    # coords: [batch_size, num_atoms, 3]
+    # coords.unsqueeze(2): [batch_size, num_atoms, 1, 3]
+    # coords.unsqueeze(1): [batch_size, 1, num_atoms, 3]
+    diff = coords.unsqueeze(2) - coords.unsqueeze(1)  # [batch_size, num_atoms, num_atoms, 3]
+    distances = torch.norm(diff, dim=3)  # [batch_size, num_atoms, num_atoms]
+    
+    # Extract upper triangular part (excluding diagonal) to get unique pairwise distances
+    # Create mask for upper triangular matrix (excluding diagonal)
+    mask = torch.triu(torch.ones(num_atoms, num_atoms, device=flattened_coords.device), diagonal=1).bool()
+    
+    # Apply mask to each batch item
+    pairwise_distances = []
+    for i in range(batch_size):
+        batch_distances = distances[i][mask]  # [num_pairs]
+        pairwise_distances.append(batch_distances)
+    
+    pairwise_distances = torch.stack(pairwise_distances, dim=0)  # [batch_size, num_pairs]
+    
+    return pairwise_distances
+
+
+def vae_loss(reconstructed, target, mu, logvar, num_atoms):
+    """VAE loss using pairwise distances instead of raw coordinates."""
+    # Compute pairwise distances for both reconstructed and target
+    recon_distances = compute_pairwise_distances(reconstructed, num_atoms)
+    target_distances = compute_pairwise_distances(target, num_atoms)
+    
+    # Reconstruction loss (MSE on pairwise distances)
     reconstruction_loss = nn.MSELoss()
-    recon_loss = reconstruction_loss(reconstructed, target)
+    recon_loss = reconstruction_loss(recon_distances, target_distances)
     
     # KL divergence loss with numerical stability
     # Clamp logvar to prevent numerical issues
@@ -67,6 +109,7 @@ dataset = Chromosome21PDBDataset(
 )
 
 print(f"Dataset loaded: {len(dataset)} models, {dataset.vector_length} coordinates per model")
+print(f"Number of atoms per model: {dataset.atoms_per_model}")
 
 # Create model
 vae = LGL_VAE(hidden_dim=HIDDEN_DIM, latent_dim=LATENT_DIM, input_dim=dataset.vector_length)
@@ -130,7 +173,7 @@ for epoch in range(NUM_EPOCHS):
         reconstructed, mu, logvar = vae(batch)
         
         # Calculate loss
-        loss, recon_loss, kl_loss = vae_loss(reconstructed, batch, mu, logvar)
+        loss, recon_loss, kl_loss = vae_loss(reconstructed, batch, mu, logvar, dataset.atoms_per_model)
         
         # Backward pass
         loss.backward()
@@ -162,7 +205,7 @@ for epoch in range(NUM_EPOCHS):
             # Move batch to device
             batch = batch.to(utils.device)
             reconstructed, mu, logvar = vae(batch)
-            loss, recon_loss, kl_loss = vae_loss(reconstructed, batch, mu, logvar)
+            loss, recon_loss, kl_loss = vae_loss(reconstructed, batch, mu, logvar, dataset.atoms_per_model)
             
             val_total_loss += loss.item()
             val_total_recon_loss += recon_loss.item()
@@ -179,7 +222,7 @@ for epoch in range(NUM_EPOCHS):
     print(f"Epoch {epoch+1}/{NUM_EPOCHS} - Train Loss: {avg_loss:.4f}, Recon: {avg_recon_loss:.4f}, KL: {avg_kl_loss:.4f} | Val Loss: {avg_val_loss:.4f}, Recon: {avg_val_recon_loss:.4f}, KL: {avg_val_kl_loss:.4f}")
 
     # Save the trained model every 100 epochs
-    if (epoch + 1) % 100 == 0:
+    if (epoch + 1) % 25 == 0:
         torch.save(vae.state_dict(), MODEL_SAVE_PATH)
         print(f"Model saved to {MODEL_SAVE_PATH}")
 

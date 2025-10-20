@@ -54,13 +54,13 @@ def encode_dataset(model, dataloader, device):
 
 def main():
     # Configuration
-    model_path = "/scratch/amk19/ChromVAE/ChromVAE/outputs/trained_vae_model_XL.pt"
+    model_path = "/scratch/amk19/ChromVAE/ChromVAE/outputs/trained_vae_model.pt"
     dataset_path = "/scratch/amk19/ChromVAE/ChromVAE/Data/chromosome21_aligned.pdb"
-    output_dir = "/scratch/amk19/ChromVAE/ChromVAE/outputs/Generated_Samples_XL"
+    output_dir = "/scratch/amk19/ChromVAE/ChromVAE/outputs/Generated_Samples"
     
     # Model hyperparameters (must match training configuration)
     HIDDEN_DIM = 4096
-    LATENT_DIM = 2
+    LATENT_DIM = 64
     BATCH_SIZE = 16
     
     # Create output directory if it doesn't exist
