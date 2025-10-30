@@ -23,7 +23,7 @@ def main():
     output_dir = "./outputs/Generated_Samples"
     num_samples = 1000
     HIDDEN_DIM = 4096
-    LATENT_DIM = 16
+    LATENT_DIM = 2
     LATENT_VARIANCE = 10.0  # Variance multiplier for latent space sampling (1.0 = standard normal)
     
     # Create output directory
@@ -47,6 +47,20 @@ def main():
     model = model.to(utils.device)
     
     checkpoint = torch.load(model_path, map_location=utils.device)
+    
+    # Handle the case where the model was saved with DataParallel/DistributedDataParallel
+    # which adds "module." prefix to all keys
+    if any(key.startswith('module.') for key in checkpoint.keys()):
+        # Create a new state dict with "module." prefix removed
+        new_state_dict = {}
+        for key, value in checkpoint.items():
+            if key.startswith('module.'):
+                new_key = key[7:]  # Remove 'module.' prefix
+                new_state_dict[new_key] = value
+            else:
+                new_state_dict[key] = value
+        checkpoint = new_state_dict
+    
     model.load_state_dict(checkpoint)
     model.eval()
     

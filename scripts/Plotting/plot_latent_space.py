@@ -60,7 +60,7 @@ def main():
     
     # Model hyperparameters (must match training configuration)
     HIDDEN_DIM = 4096
-    LATENT_DIM = 64
+    LATENT_DIM = 2
     BATCH_SIZE = 16
     
     # Create output directory if it doesn't exist
@@ -92,6 +92,20 @@ def main():
         raise FileNotFoundError(f"Model file not found: {model_path}")
     
     checkpoint = torch.load(model_path, map_location=utils.device)
+    
+    # Handle the case where the model was saved with DataParallel/DistributedDataParallel
+    # which adds "module." prefix to all keys
+    if any(key.startswith('module.') for key in checkpoint.keys()):
+        # Create a new state dict with "module." prefix removed
+        new_state_dict = {}
+        for key, value in checkpoint.items():
+            if key.startswith('module.'):
+                new_key = key[7:]  # Remove 'module.' prefix
+                new_state_dict[new_key] = value
+            else:
+                new_state_dict[key] = value
+        checkpoint = new_state_dict
+    
     model.load_state_dict(checkpoint)
     print("Model loaded successfully!")
     
