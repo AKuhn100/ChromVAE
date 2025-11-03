@@ -22,7 +22,7 @@ torch.backends.cudnn.benchmark = False
 # Path to PDB file
 PDB_PATH = "./Data/chromosome21_aligned.pdb"
 # Path to save trained model
-MODEL_SAVE_PATH = "./outputs/trained_vae_model_RMSD.pt"
+MODEL_SAVE_PATH = "./outputs/Large_Latent_Dim/trained_vae_model_RMSD_64_Latent_Dim.pt"
 
 # Model hyperparameters
 HIDDEN_DIM = 4096
@@ -31,8 +31,9 @@ LATENT_DIM = 64
 # Training hyperparameters
 BATCH_SIZE = 64
 LEARNING_RATE = 1e-4  # Reduced learning rate for stability
-NUM_EPOCHS = 1000
+NUM_EPOCHS = 100
 L2_REGULARIZATION = 0.0001
+BETA = 0.0001  # KL divergence weight
 
 # Initialize Utils
 utils = Utils()
@@ -63,10 +64,30 @@ def compute_rmsd(reconstructed: torch.Tensor, target: torch.Tensor, num_atoms: i
     return rmsd
 
 
-def rmsd_loss(reconstructed: torch.Tensor, target: torch.Tensor, num_atoms: int) -> torch.Tensor:
-    """Return mean RMSD over the batch (no KL term)."""
+def kl_divergence(mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
+    """Compute batch-mean KL divergence between q(z|x)=N(mu,exp(logvar)) and p(z)=N(0,I)."""
+    # Clamp for numerical stability
+    logvar = torch.clamp(logvar, min=-10, max=10)
+    kl_per_sample = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1)
+    return torch.mean(kl_per_sample)
+
+
+def vae_loss_rmsd_kl(
+    reconstructed: torch.Tensor,
+    target: torch.Tensor,
+    mu: torch.Tensor,
+    logvar: torch.Tensor,
+    num_atoms: int,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Total loss = mean RMSD + BETA * KL
+    Returns (total_loss, mean_rmsd, kl_loss)
+    """
     rmsd = compute_rmsd(reconstructed, target, num_atoms)
-    return torch.mean(rmsd)
+    mean_rmsd = torch.mean(rmsd)
+    kl_loss = kl_divergence(mu, logvar)
+    total = mean_rmsd + BETA * kl_loss
+    return total, mean_rmsd, kl_loss
 
 
 # Load PDB dataset
@@ -129,6 +150,8 @@ optimizer = optim.Adam(vae.parameters(), lr=LEARNING_RATE, weight_decay=L2_REGUL
 vae.train()
 for epoch in range(NUM_EPOCHS):
     total_loss = 0.0
+    total_rmsd = 0.0
+    total_kl = 0.0
 
     # Training phase with loss tracking in progress bar
     progress_bar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{NUM_EPOCHS}")
@@ -140,8 +163,10 @@ for epoch in range(NUM_EPOCHS):
         optimizer.zero_grad()
         reconstructed, mu, logvar = vae(batch)
 
-        # Calculate RMSD loss (no KL or auxiliary terms)
-        loss = rmsd_loss(reconstructed, batch, dataset.atoms_per_model)
+        # Calculate loss with KL regularization
+        loss, mean_rmsd, kl_loss = vae_loss_rmsd_kl(
+            reconstructed, batch, mu, logvar, dataset.atoms_per_model
+        )
 
         # Backward pass
         loss.backward()
@@ -152,28 +177,44 @@ for epoch in range(NUM_EPOCHS):
         optimizer.step()
 
         total_loss += loss.item()
+        total_rmsd += mean_rmsd.item()
+        total_kl += kl_loss.item()
 
     # Calculate average training loss for this epoch
     avg_loss = total_loss / len(train_loader)
+    avg_rmsd = total_rmsd / len(train_loader)
+    avg_kl = total_kl / len(train_loader)
 
     # Validation phase
     vae.eval()
     val_total_loss = 0.0
+    val_total_rmsd = 0.0
+    val_total_kl = 0.0
 
     with torch.no_grad():
         for batch in val_loader:
             batch = batch.to(utils.device)
             reconstructed, mu, logvar = vae(batch)
-            loss = rmsd_loss(reconstructed, batch, dataset.atoms_per_model)
+            loss, mean_rmsd, kl_loss = vae_loss_rmsd_kl(
+                reconstructed, batch, mu, logvar, dataset.atoms_per_model
+            )
             val_total_loss += loss.item()
+            val_total_rmsd += mean_rmsd.item()
+            val_total_kl += kl_loss.item()
 
     # Calculate average validation loss
     avg_val_loss = val_total_loss / len(val_loader)
+    avg_val_rmsd = val_total_rmsd / len(val_loader)
+    avg_val_kl = val_total_kl / len(val_loader)
 
     # Set model back to training mode
     vae.train()
 
-    print(f"Epoch {epoch+1}/{NUM_EPOCHS} - Train RMSD: {avg_loss:.6f} | Val RMSD: {avg_val_loss:.6f}")
+    print(
+        f"Epoch {epoch+1}/{NUM_EPOCHS} - "
+        f"Train Total: {avg_loss:.6f}, RMSD: {avg_rmsd:.6f}, KL: {avg_kl:.6f} | "
+        f"Val Total: {avg_val_loss:.6f}, RMSD: {avg_val_rmsd:.6f}, KL: {avg_val_kl:.6f}"
+    )
 
     # Save the trained model periodically
     if (epoch + 1) % 25 == 0:
