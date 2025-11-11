@@ -16,3 +16,24 @@ Chromatin_Analysis_2020_cell/
 Data/
 outputs/
 outputs*/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.env/
+
+# Python cache files
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.pyo
+ 
+# Ignore embedded repo directory
+Chromatin_Analysis_2020_cell/
+Data/
+outputs/
+outputs*/
+enhanced-force-scheme/
+Vini_Model 2/

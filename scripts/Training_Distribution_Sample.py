@@ -64,13 +64,13 @@ def encode_training_set(model, dataset, device, batch_size=64):
 
 def main():
     # Configuration
-    model_path = "./outputs/trained_vae_model.pt"
+    model_path = "./outputs/Large_Latent_Dim/trained_vae_model_RMSD_64_Latent_Dim.pt"
     dataset_path = "./Data/chromosome21_aligned.pdb"
-    output_dir = "./outputs/Generated_Samples"
-    num_samples = 1000
+    output_dir = "./outputs/Generated_Samples/Large_Latent_Dim/Beta_0.0001/Variance_Multiplier_3.0"
+    num_samples = 10000
     HIDDEN_DIM = 4096
     LATENT_DIM = 64
-    VARIANCE_MULTIPLIER = 1.0  # Multiplier for stddev (1.0 = use exact training stddev)
+    VARIANCE_MULTIPLIER = 3.0  # Multiplier for stddev (1.0 = use exact training stddev)
     
     # Create output directory
     Path(output_dir).mkdir(parents=True, exist_ok=True)
